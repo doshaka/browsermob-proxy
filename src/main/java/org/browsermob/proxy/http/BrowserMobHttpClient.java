@@ -53,6 +53,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.GZIPInputStream;
 
+import org.apache.commons.io.output.TeeOutputStream;
+
+
 public class BrowserMobHttpClient {
     private static final int BUFFER = 4096;
 
@@ -456,6 +459,11 @@ public class BrowserMobHttpClient {
         if (os == null) {
             os = new CappedByteArrayOutputStream(1024 * 1024); // MOB-216 don't buffer more than 1 MB
         }
+
+        // ANTON
+        ByteArrayOutputStream branch = new ByteArrayOutputStream();
+        OutputStream tee = new TeeOutputStream(os, branch);
+
         if (verificationText != null) {
             contentMatched = false;
         }
@@ -556,7 +564,7 @@ public class BrowserMobHttpClient {
                         }
                     }
 
-                    bytes = copyWithStats(is, os);
+                    bytes = copyWithStats(is, tee);
                 }
             }
         } catch (Exception e) {
@@ -584,6 +592,9 @@ public class BrowserMobHttpClient {
                 }
             }
         }
+
+        // ANTON TODO READ branched steram into string like this
+        // org.apache.commons.io.IOUtils.toString(new java.util.zip.GZIPInputStream(new ByteArrayInputStream(branch.toByteArray())))
 
         // record the response as ended
         RequestInfo.get().finish();
