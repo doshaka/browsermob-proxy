@@ -1,12 +1,59 @@
 package org.browsermob.proxy.http;
 
-import cz.mallat.uasparser.CachingOnlineUpdateUASparser;
-import cz.mallat.uasparser.UASparser;
-import cz.mallat.uasparser.UserAgentInfo;
-import org.apache.http.*;
-import org.apache.http.auth.*;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.io.UnsupportedEncodingException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Scanner;
+import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.zip.GZIPInputStream;
+
+import org.apache.commons.io.IOUtils;
+import org.apache.commons.io.output.TeeOutputStream;
+import org.apache.http.Header;
+import org.apache.http.HeaderElement;
+import org.apache.http.HttpClientConnection;
+import org.apache.http.HttpConnection;
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpException;
+import org.apache.http.HttpHost;
+import org.apache.http.HttpRequest;
+import org.apache.http.HttpRequestInterceptor;
+import org.apache.http.HttpResponse;
+import org.apache.http.HttpResponseInterceptor;
+import org.apache.http.NameValuePair;
+import org.apache.http.ParseException;
+import org.apache.http.StatusLine;
+import org.apache.http.auth.AuthScheme;
+import org.apache.http.auth.AuthScope;
+import org.apache.http.auth.AuthState;
+import org.apache.http.auth.Credentials;
+import org.apache.http.auth.NTCredentials;
+import org.apache.http.auth.UsernamePasswordCredentials;
 import org.apache.http.client.CredentialsProvider;
-import org.apache.http.client.methods.*;
+import org.apache.http.client.methods.HttpDelete;
+import org.apache.http.client.methods.HttpEntityEnclosingRequestBase;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpHead;
+import org.apache.http.client.methods.HttpOptions;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.client.methods.HttpPut;
+import org.apache.http.client.methods.HttpRequestBase;
 import org.apache.http.client.params.ClientPNames;
 import org.apache.http.client.protocol.ClientContext;
 import org.apache.http.client.utils.URLEncodedUtils;
@@ -34,7 +81,16 @@ import org.apache.http.protocol.BasicHttpContext;
 import org.apache.http.protocol.ExecutionContext;
 import org.apache.http.protocol.HttpContext;
 import org.apache.http.protocol.HttpRequestExecutor;
-import org.browsermob.core.har.*;
+import org.browsermob.core.har.Har;
+import org.browsermob.core.har.HarCookie;
+import org.browsermob.core.har.HarEntry;
+import org.browsermob.core.har.HarNameValuePair;
+import org.browsermob.core.har.HarNameVersion;
+import org.browsermob.core.har.HarPostData;
+import org.browsermob.core.har.HarPostDataParam;
+import org.browsermob.core.har.HarRequest;
+import org.browsermob.core.har.HarResponse;
+import org.browsermob.core.har.HarTimings;
 import org.browsermob.proxy.util.CappedByteArrayOutputStream;
 import org.browsermob.proxy.util.Log;
 import org.eclipse.jetty.util.MultiMap;
@@ -42,18 +98,9 @@ import org.eclipse.jetty.util.UrlEncoded;
 import org.xbill.DNS.Cache;
 import org.xbill.DNS.DClass;
 
-import java.io.*;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.util.*;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-import java.util.zip.GZIPInputStream;
-
-import org.apache.commons.io.output.TeeOutputStream;
+import cz.mallat.uasparser.CachingOnlineUpdateUASparser;
+import cz.mallat.uasparser.UASparser;
+import cz.mallat.uasparser.UserAgentInfo;
 
 
 public class BrowserMobHttpClient {
@@ -460,7 +507,7 @@ public class BrowserMobHttpClient {
             os = new CappedByteArrayOutputStream(1024 * 1024); // MOB-216 don't buffer more than 1 MB
         }
 
-        // ANTON
+        // d.
         ByteArrayOutputStream branch = new ByteArrayOutputStream();
         OutputStream tee = new TeeOutputStream(os, branch);
 
@@ -593,8 +640,32 @@ public class BrowserMobHttpClient {
             }
         }
 
-        // ANTON TODO READ branched steram into string like this
-        // org.apache.commons.io.IOUtils.toString(new java.util.zip.GZIPInputStream(new ByteArrayInputStream(branch.toByteArray())))
+        // d.
+        // capturing the content of response
+        
+        if (branch != null){
+        	Header contentEncodingHeader = response.getFirstHeader("Content-Encoding");
+        	if (contentEncodingHeader != null && "gzip".equalsIgnoreCase(contentEncodingHeader.getValue())) {
+                try {
+					String content =IOUtils.toString(new GZIPInputStream(new ByteArrayInputStream(branch.toByteArray())));
+					entry.getResponse().getContent().setText(content);
+					
+				} catch (IOException e) {
+					// this is OK to ignore
+				} 
+                
+            } else {
+            	String content = branch.toString();
+            	entry.getResponse().getContent().setText(content);
+            }
+        	try {
+				branch.close();
+			} catch (IOException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+        }
+        
 
         // record the response as ended
         RequestInfo.get().finish();
